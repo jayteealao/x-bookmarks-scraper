@@ -637,4 +637,25 @@ export class BookmarkMapperV2 {
   getMetrics(): MetricsCollector {
     return this.metrics;
   }
+
+  /**
+   * Get current unique tweet count (for growth detection)
+   */
+  getUniqueTweetCount(): number {
+    return this.seenTweets.size;
+  }
+
+  /**
+   * Get count of tweets written in current session (excluding checkpoint restore)
+   */
+  getNewlyWrittenCount(): number {
+    return this.tweetOrder;
+  }
+
+  /**
+   * Get response count
+   */
+  getResponseCount(): number {
+    return this.responseCount;
+  }
 }

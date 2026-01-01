@@ -7,6 +7,10 @@
   "scripts": {
     "discover": "tsx src/index-v2.ts --mode=discover",
     "extract": "tsx src/index-v2.ts --mode=extract",
+    "extract:sqlite": "tsx src/index-v2.ts --mode=extract --sqlite",
+    "extract:fresh": "tsx src/index-v2.ts --mode=extract --no-resume",
+    "extract:sqlite:fresh": "tsx src/index-v2.ts --mode=extract --sqlite --no-resume",
+    "extract:full": "tsx src/index-v2.ts --mode=extract --sqlite --download-media",
     "discover:v1": "tsx src/index.ts --mode=discover",
     "extract:v1": "tsx src/index.ts --mode=extract",
     "verify": "tsx src/verify-har.ts",

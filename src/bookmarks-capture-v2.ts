@@ -272,23 +272,17 @@ export class BookmarksCaptureV2 {
 
   /**
    * Scroll to bottom with adaptive speed
+   * Uses API response count for growth detection (not DOM, which is virtual)
    */
   private async scrollToBottom(page: any): Promise<void> {
     let scrollCount = 0;
     let noGrowthCount = 0;
-    let previousStatusIds = new Set<string>();
     let lastScrollTime = Date.now();
+    let previousTweetCount = this.mapper ? this.mapper.getUniqueTweetCount() : 0;
+    let previousResponseCount = this.mapper ? this.mapper.getResponseCount() : 0;
 
     while (scrollCount < this.options.maxScrolls) {
       const scrollStartTime = Date.now();
-
-      // Get current bookmark IDs
-      const statusIds = await this.extractStatusIds(page);
-      const currentCount = statusIds.size;
-
-      // Calculate growth
-      const growth = currentCount - previousStatusIds.size;
-      const responseTime = Date.now() - lastScrollTime;
 
       // Update metrics
       if (this.mapper) {
@@ -296,26 +290,35 @@ export class BookmarksCaptureV2 {
         metrics.recordScroll();
       }
 
-      console.log(`[Scroll ${scrollCount + 1}] Bookmarks: ${currentCount} (+${growth})`);
+      // Calculate growth based on API responses (not DOM - X uses virtual scrolling)
+      const currentTweetCount = this.mapper ? this.mapper.getUniqueTweetCount() : 0;
+      const currentResponseCount = this.mapper ? this.mapper.getResponseCount() : 0;
+      const tweetGrowth = currentTweetCount - previousTweetCount;
+      const newResponses = currentResponseCount - previousResponseCount;
+      const responseTime = Date.now() - lastScrollTime;
 
-      // Check for growth
-      if (growth === 0) {
+      console.log(`[Scroll ${scrollCount + 1}] Tweets captured: ${currentTweetCount} (+${tweetGrowth}) | Responses: ${currentResponseCount}`);
+
+      // Check for growth - use API response count, not DOM
+      // No growth = no new API responses AND no new tweets
+      if (newResponses === 0 && tweetGrowth === 0) {
         noGrowthCount++;
-        console.log(`  No growth (${noGrowthCount}/${this.options.noGrowthThreshold})`);
+        console.log(`  No new data (${noGrowthCount}/${this.options.noGrowthThreshold})`);
 
         if (noGrowthCount >= this.options.noGrowthThreshold) {
-          console.log('[Scroll] No new bookmarks for several scrolls, stopping');
+          console.log('[Scroll] No new API responses for several scrolls, stopping');
           break;
         }
       } else {
         noGrowthCount = 0;
-        previousStatusIds = statusIds;
+        previousTweetCount = currentTweetCount;
+        previousResponseCount = currentResponseCount;
       }
 
       // Calculate next scroll delay with adaptive scroller
       let delay: number;
       if (this.adaptiveScroller) {
-        delay = this.adaptiveScroller.calculateDelay(growth, responseTime);
+        delay = this.adaptiveScroller.calculateDelay(tweetGrowth, responseTime);
         const stats = this.adaptiveScroller.getStats();
         console.log(`  Adaptive delay: ${delay}ms (avg growth: ${stats.avgGrowth.toFixed(1)})`);
       } else {
@@ -360,7 +363,9 @@ export class BookmarksCaptureV2 {
       console.log('[Scroll] Reached max scroll limit');
     }
 
-    console.log(`\n[Scroll] Final count: ${previousStatusIds.size} bookmarks`);
+    const finalTweetCount = this.mapper ? this.mapper.getUniqueTweetCount() : 0;
+    const finalResponseCount = this.mapper ? this.mapper.getResponseCount() : 0;
+    console.log(`\n[Scroll] Final: ${finalTweetCount} unique tweets from ${finalResponseCount} API responses`);
   }
 
   /**
