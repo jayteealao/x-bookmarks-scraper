@@ -52,49 +52,54 @@ export class HarReconciler {
    * Parse zipped HAR file
    */
   private async parseZippedHar(): Promise<any> {
-    const AdmZip = await this.loadAdmZip();
-    const zip = new AdmZip(this.harPath);
-    const harEntry = zip.getEntry('har.har');
-
-    if (!harEntry) {
-      throw new Error('har.har not found in zip archive');
-    }
-
-    const content = harEntry.getData().toString('utf-8');
+    const content = await this.extractHarContent();
     return JSON.parse(content);
   }
 
   /**
-   * Dynamically load adm-zip (we'll add it as dependency)
+   * Extract HAR content from zip using platform-appropriate method
    */
-  private async loadAdmZip(): Promise<any> {
+  private async extractHarContent(): Promise<string> {
+    const { execSync } = await import('child_process');
+    const path = await import('path');
+    const os = await import('os');
+
+    // Try unzip first (Linux/Mac/Git Bash on Windows)
     try {
-      // Try to use built-in unzip via child process as fallback
-      const { execSync } = await import('child_process');
       const result = execSync(`unzip -p "${this.harPath}" har.har`, {
         encoding: 'utf-8',
-        maxBuffer: 50 * 1024 * 1024 // 50MB buffer
+        maxBuffer: 50 * 1024 * 1024
       });
-      return {
-        getEntry: () => ({
-          getData: () => Buffer.from(result)
-        })
-      };
+      return result;
     } catch {
-      // If unzip command fails, try PowerShell on Windows
+      // unzip not available, try PowerShell (Windows)
+    }
+
+    // Try PowerShell Expand-Archive (Windows native)
+    try {
+      const tempDir = path.join(os.tmpdir(), `har-extract-${Date.now()}`);
+      const harFile = path.join(tempDir, 'har.har');
+
+      // Use PowerShell to extract
+      execSync(
+        `powershell -NoProfile -Command "Expand-Archive -LiteralPath '${this.harPath}' -DestinationPath '${tempDir}' -Force"`,
+        { encoding: 'utf-8', stdio: 'pipe' }
+      );
+
+      // Read the extracted file
+      const content = await readFile(harFile, 'utf-8');
+
+      // Cleanup
       try {
-        const { execSync } = await import('child_process');
-        const tempDir = process.env.TEMP || '/tmp';
-        execSync(`powershell -Command "Expand-Archive -Path '${this.harPath}' -DestinationPath '${tempDir}/har-extract' -Force"`, { encoding: 'utf-8' });
-        const content = await readFile(`${tempDir}/har-extract/har.har`, 'utf-8');
-        return {
-          getEntry: () => ({
-            getData: () => Buffer.from(content)
-          })
-        };
-      } catch (e) {
-        throw new Error(`Could not extract HAR zip: ${e}`);
+        const fs = await import('fs');
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors
       }
+
+      return content;
+    } catch (e) {
+      throw new Error(`Could not extract HAR zip. Error: ${e instanceof Error ? e.message : e}`);
     }
   }
 

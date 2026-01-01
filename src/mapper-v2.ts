@@ -275,18 +275,28 @@ export class BookmarkMapperV2 {
       return;
     }
 
-    this.seenTweets.add(tweetId);
+    // Don't add to seenTweets here - let processTweet handle it
+    // This avoids the bug where processTweet returns early
     this.tweetOrder++;
     this.lastProcessedTweetId = tweetId;
 
     await this.processTweet(tweetResult, this.tweetOrder);
 
+    // Process quoted and retweeted tweets (they'll get their own order)
     if (tweetResult.quoted_status_result?.result) {
-      await this.processTweet(tweetResult.quoted_status_result.result, this.tweetOrder);
+      const quotedId = tweetResult.quoted_status_result.result.rest_id;
+      if (quotedId && !this.seenTweets.has(quotedId)) {
+        this.tweetOrder++;
+        await this.processTweet(tweetResult.quoted_status_result.result, this.tweetOrder);
+      }
     }
 
     if (tweetResult.retweeted_status_result?.result) {
-      await this.processTweet(tweetResult.retweeted_status_result.result, this.tweetOrder);
+      const retweetedId = tweetResult.retweeted_status_result.result.rest_id;
+      if (retweetedId && !this.seenTweets.has(retweetedId)) {
+        this.tweetOrder++;
+        await this.processTweet(tweetResult.retweeted_status_result.result, this.tweetOrder);
+      }
     }
   }
 
