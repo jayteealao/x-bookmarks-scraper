@@ -33,8 +33,8 @@ function parseArgs(): CliOptions {
     mode: 'extract',
     headless: false,
     maxScrolls: 1000,
-    scrollDelay: 1000,
-    noGrowthThreshold: 6,
+    scrollDelay: 1500,        // Increased for better loading
+    noGrowthThreshold: 10,    // Increased to wait longer for slow API
     profileDir: './x-profile',
     useSQLite: false,
     downloadMedia: false,

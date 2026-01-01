@@ -68,7 +68,8 @@ export class HarReconciler {
     try {
       const result = execSync(`unzip -p "${this.harPath}" har.har`, {
         encoding: 'utf-8',
-        maxBuffer: 50 * 1024 * 1024
+        maxBuffer: 50 * 1024 * 1024,
+        stdio: ['pipe', 'pipe', 'pipe']  // Suppress stderr
       });
       return result;
     } catch {

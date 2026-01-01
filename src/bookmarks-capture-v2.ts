@@ -114,6 +114,22 @@ export class BookmarksCaptureV2 {
         await page.waitForTimeout(2000);
       }
 
+      // Wait for initial bookmarks to load (wait for network to settle)
+      console.log('[Capture] Waiting for initial bookmarks to load...');
+      await page.waitForTimeout(3000);
+
+      // Wait for at least one Bookmarks API response
+      let waitCount = 0;
+      while (this.mapper && this.mapper.getResponseCount() === 0 && waitCount < 10) {
+        console.log(`[Capture] Waiting for API response... (${waitCount + 1}/10)`);
+        await page.waitForTimeout(1000);
+        waitCount++;
+      }
+
+      const initialResponses = this.mapper ? this.mapper.getResponseCount() : 0;
+      const initialTweets = this.mapper ? this.mapper.getUniqueTweetCount() : 0;
+      console.log(`[Capture] Initial load: ${initialTweets} tweets from ${initialResponses} responses`);
+
       console.log('[Capture] Starting scroll...\n');
 
       // Scroll to load all bookmarks
@@ -352,9 +368,38 @@ export class BookmarksCaptureV2 {
         delay = this.options.scrollDelay + Math.random() * 400 - 200;
       }
 
-      // Scroll
+      // Scroll to bottom of document (not just viewport)
       await page.evaluate(() => {
-        window.scrollBy(0, window.innerHeight * 2);
+        // Scroll to absolute bottom
+        window.scrollTo(0, document.body.scrollHeight);
+      });
+
+      // Wait for potential network activity
+      await sleep(500);
+
+      // Try clicking any "Show more" or "Load more" buttons
+      try {
+        const showMoreButton = await page.$('[data-testid="cellInnerDiv"] [role="button"]:has-text("Show"), [data-testid="cellInnerDiv"] [role="button"]:has-text("more")');
+        if (showMoreButton) {
+          console.log('  → Found "Show more" button, clicking...');
+          await showMoreButton.click();
+          await sleep(1000);
+        }
+      } catch {
+        // No button found, that's fine
+      }
+
+      // Also try scrolling within the main timeline container (X uses nested scrolling)
+      await page.evaluate(() => {
+        const timeline = document.querySelector('[data-testid="primaryColumn"]');
+        if (timeline) {
+          timeline.scrollTop = timeline.scrollHeight;
+        }
+        // Also scroll the main section
+        const main = document.querySelector('main');
+        if (main) {
+          main.scrollTop = main.scrollHeight;
+        }
       });
 
       await sleep(delay);
