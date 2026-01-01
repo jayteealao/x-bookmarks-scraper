@@ -4,6 +4,11 @@
  * Enhanced with checkpoint resume, SQLite, media download, adaptive scrolling
  */
 
+// Debug: Print immediately to verify script is running
+console.log('[DEBUG] Script started - index-v2.ts is executing');
+console.log('[DEBUG] Node version:', process.version);
+console.log('[DEBUG] Arguments:', process.argv);
+
 import { BookmarksCaptureV2, type CaptureMode } from './bookmarks-capture-v2.js';
 import { existsSync, mkdirSync } from 'fs';
 
