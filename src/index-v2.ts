@@ -147,6 +147,20 @@ Output Files:
 }
 
 /**
+ * Check if Playwright is installed
+ */
+async function checkPlaywrightInstalled(): Promise<boolean> {
+  try {
+    const { chromium } = await import('playwright');
+    // Try to get browser type
+    const browserType = chromium;
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
  * Main function
  */
 async function main() {
@@ -158,6 +172,17 @@ async function main() {
   if (!existsSync('out')) {
     mkdirSync('out', { recursive: true });
   }
+
+  // Check Playwright installation
+  console.log('[Setup] Verifying Playwright installation...');
+  const isInstalled = await checkPlaywrightInstalled();
+  if (!isInstalled) {
+    console.error('\n❌ Playwright is not installed!');
+    console.error('\nPlease run:');
+    console.error('  npx playwright install\n');
+    process.exit(1);
+  }
+  console.log('[Setup] ✓ Playwright is installed\n');
 
   // Create and run capture
   const capture = new BookmarksCaptureV2({
@@ -177,7 +202,26 @@ async function main() {
     console.log('\n✅ Success!');
     process.exit(0);
   } catch (error) {
-    console.error('\n❌ Error:', error);
+    console.error('\n❌ ERROR OCCURRED:');
+    console.error('═'.repeat(60));
+
+    if (error instanceof Error) {
+      console.error('Message:', error.message);
+      if (error.stack) {
+        console.error('\nStack trace:');
+        console.error(error.stack);
+      }
+    } else {
+      console.error(error);
+    }
+
+    console.error('═'.repeat(60));
+    console.error('\nTroubleshooting:');
+    console.error('1. Run: npx playwright install');
+    console.error('2. Check Node version: node --version (need v20+)');
+    console.error('3. See WINDOWS-SETUP.md for Windows-specific issues');
+    console.error('═'.repeat(60));
+
     process.exit(1);
   }
 }
