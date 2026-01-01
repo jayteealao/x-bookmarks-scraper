@@ -1,0 +1,322 @@
+/**
+ * Enhanced Bookmarks Capture Module (V2)
+ * Playwright runner with:
+ * - Adaptive scroll speed
+ * - Rate limit detection
+ * - Retry logic for responses
+ * - Better error handling
+ */
+
+import { chromium, type BrowserContext, type Response } from 'playwright';
+import { ShapeDiscovery } from './shape-discovery.js';
+import { BookmarkMapperV2, type MapperOptions } from './mapper-v2.js';
+import { AdaptiveScroller } from './adaptive-scroller.js';
+import { parseJSONWithRetry, sleep } from './utils.js';
+
+export type CaptureMode = 'discover' | 'extract';
+
+export interface CaptureOptions extends MapperOptions {
+  mode: CaptureMode;
+  headless?: boolean;
+  maxScrolls?: number;
+  scrollDelay?: number;
+  noGrowthThreshold?: number;
+  profileDir?: string;
+}
+
+export class BookmarksCaptureV2 {
+  private options: Required<CaptureOptions>;
+  private context?: BrowserContext;
+  private discovery?: ShapeDiscovery;
+  private mapper?: BookmarkMapperV2;
+  private adaptiveScroller?: AdaptiveScroller;
+
+  constructor(options: CaptureOptions) {
+    this.options = {
+      headless: options.headless ?? false,
+      maxScrolls: options.maxScrolls ?? 1000,
+      scrollDelay: options.scrollDelay ?? 1000,
+      noGrowthThreshold: options.noGrowthThreshold ?? 6,
+      profileDir: options.profileDir ?? './x-profile',
+      mode: options.mode,
+      useSQLite: options.useSQLite ?? false,
+      downloadMedia: options.downloadMedia ?? false,
+      resumeFromCheckpoint: options.resumeFromCheckpoint ?? true,
+    };
+  }
+
+  /**
+   * Run the capture process
+   */
+  async run(): Promise<void> {
+    console.log(`\n╔═══════════════════════════════════════════╗`);
+    console.log(`║   X Bookmarks Scraper V2                  ║`);
+    console.log(`╚═══════════════════════════════════════════╝`);
+    console.log(`Mode: ${this.options.mode}`);
+    console.log(`Profile: ${this.options.profileDir}`);
+    console.log(`SQLite: ${this.options.useSQLite ? 'enabled' : 'disabled'}`);
+    console.log(`Media download: ${this.options.downloadMedia ? 'enabled' : 'disabled'}`);
+    console.log(`Resume: ${this.options.resumeFromCheckpoint ? 'enabled' : 'disabled'}\n`);
+
+    try {
+      // Initialize components
+      if (this.options.mode === 'discover') {
+        this.discovery = new ShapeDiscovery();
+      } else {
+        this.mapper = new BookmarkMapperV2({
+          useSQLite: this.options.useSQLite,
+          downloadMedia: this.options.downloadMedia,
+          resumeFromCheckpoint: this.options.resumeFromCheckpoint,
+        });
+        await this.mapper.initialize();
+
+        // Initialize adaptive scroller
+        this.adaptiveScroller = new AdaptiveScroller(this.options.scrollDelay);
+      }
+
+      // Launch browser
+      await this.launchBrowser();
+
+      const page = this.context!.pages()[0] || (await this.context!.newPage());
+
+      console.log('[Capture] Navigating to X Bookmarks...');
+      await page.goto('https://x.com/i/bookmarks', { waitUntil: 'networkidle', timeout: 60000 });
+
+      // Check login
+      const isLoggedIn = await this.checkLogin(page);
+      if (!isLoggedIn) {
+        console.log('\n⚠️  Not logged in to X. Please log in manually.');
+        console.log('The browser will stay open. After logging in, press Enter to continue...');
+
+        await new Promise<void>((resolve) => {
+          process.stdin.once('data', () => resolve());
+        });
+
+        await page.goto('https://x.com/i/bookmarks', { waitUntil: 'networkidle', timeout: 60000 });
+      }
+
+      console.log('[Capture] Starting scroll...\n');
+
+      // Scroll to load all bookmarks
+      await this.scrollToBottom(page);
+
+      console.log('\n[Capture] Scrolling complete');
+
+      // Save results
+      if (this.discovery) {
+        this.discovery.saveDiscoveries();
+      } else if (this.mapper) {
+        await this.mapper.generateReport();
+        await this.mapper.close();
+      }
+
+      console.log('\n✅ Capture complete! Files saved to ./out/');
+
+    } catch (error) {
+      console.error('\n❌ [Capture] Error:', error);
+      throw error;
+    } finally {
+      if (this.context) {
+        console.log('\n[Capture] Closing browser and flushing HAR...');
+        await this.context.close();
+      }
+    }
+  }
+
+  /**
+   * Launch browser with persistent context
+   */
+  private async launchBrowser(): Promise<void> {
+    console.log('[Capture] Launching Chrome with persistent context...');
+
+    this.context = await chromium.launchPersistentContext(this.options.profileDir, {
+      channel: 'chrome',
+      headless: this.options.headless,
+      recordHar: {
+        path: 'out/x-bookmarks.har.zip',
+        mode: 'minimal',
+        urlFilter: /\/i\/api\/graphql\//,
+      },
+      viewport: { width: 1280, height: 720 },
+    });
+
+    // Set up response listener
+    this.context.on('response', (response) => {
+      this.handleResponse(response).catch(err => {
+        console.error('[Capture] Response handler error:', err);
+      });
+    });
+
+    console.log('[Capture] Browser launched successfully');
+  }
+
+  /**
+   * Handle GraphQL responses with retry logic
+   */
+  private async handleResponse(response: Response): Promise<void> {
+    const url = response.url();
+
+    if (!url.includes('/i/api/graphql/')) {
+      return;
+    }
+
+    const contentType = response.headers()['content-type'] || '';
+    if (!contentType.includes('application/json')) {
+      return;
+    }
+
+    try {
+      // Parse JSON with retry logic
+      const json = await parseJSONWithRetry(() => response.text(), 3);
+
+      // Process based on mode
+      if (this.discovery) {
+        this.discovery.analyzeResponse(url, json);
+
+        if (!this.discovery.shouldContinue()) {
+          console.log('\n[Discovery] Found sufficient samples');
+        }
+      } else if (this.mapper) {
+        await this.mapper.processResponse(url, json);
+
+        // Check for rate limiting
+        const rateLimitDetector = this.mapper.getRateLimitDetector();
+        if (rateLimitDetector.hasTooManyErrors()) {
+          console.warn('\n⚠️  Too many consecutive errors detected');
+        }
+      }
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        return; // Ignore non-JSON responses
+      }
+      console.error(`[Capture] Error processing response from ${url}:`, error);
+    }
+  }
+
+  /**
+   * Check if logged in
+   */
+  private async checkLogin(page: any): Promise<boolean> {
+    try {
+      await page.waitForTimeout(2000);
+
+      const hasBookmarksHeader = await page.locator('[data-testid="primaryColumn"]').count() > 0;
+      const url = page.url();
+      const isOnLoginPage = url.includes('/login') || url.includes('/i/flow/login');
+
+      return hasBookmarksHeader && !isOnLoginPage;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Scroll to bottom with adaptive speed
+   */
+  private async scrollToBottom(page: any): Promise<void> {
+    let scrollCount = 0;
+    let noGrowthCount = 0;
+    let previousStatusIds = new Set<string>();
+    let lastScrollTime = Date.now();
+
+    while (scrollCount < this.options.maxScrolls) {
+      const scrollStartTime = Date.now();
+
+      // Get current bookmark IDs
+      const statusIds = await this.extractStatusIds(page);
+      const currentCount = statusIds.size;
+
+      // Calculate growth
+      const growth = currentCount - previousStatusIds.size;
+      const responseTime = Date.now() - lastScrollTime;
+
+      // Update metrics
+      if (this.mapper) {
+        const metrics = this.mapper.getMetrics();
+        metrics.recordScroll();
+      }
+
+      console.log(`[Scroll ${scrollCount + 1}] Bookmarks: ${currentCount} (+${growth})`);
+
+      // Check for growth
+      if (growth === 0) {
+        noGrowthCount++;
+        console.log(`  No growth (${noGrowthCount}/${this.options.noGrowthThreshold})`);
+
+        if (noGrowthCount >= this.options.noGrowthThreshold) {
+          console.log('[Scroll] No new bookmarks for several scrolls, stopping');
+          break;
+        }
+      } else {
+        noGrowthCount = 0;
+        previousStatusIds = statusIds;
+      }
+
+      // Calculate next scroll delay with adaptive scroller
+      let delay: number;
+      if (this.adaptiveScroller) {
+        delay = this.adaptiveScroller.calculateDelay(growth, responseTime);
+        const stats = this.adaptiveScroller.getStats();
+        console.log(`  Adaptive delay: ${delay}ms (avg growth: ${stats.avgGrowth.toFixed(1)})`);
+      } else {
+        delay = this.options.scrollDelay + Math.random() * 400 - 200;
+      }
+
+      // Scroll
+      await page.evaluate(() => {
+        window.scrollBy(0, window.innerHeight * 2);
+      });
+
+      await sleep(delay);
+
+      lastScrollTime = Date.now();
+      scrollCount++;
+
+      // Early stop in discovery mode
+      if (this.discovery && !this.discovery.shouldContinue()) {
+        console.log('[Scroll] Discovery complete');
+        break;
+      }
+
+      // Check for rate limiting
+      if (this.mapper) {
+        const rateLimitDetector = this.mapper.getRateLimitDetector();
+        const status = rateLimitDetector.getStatus();
+
+        if (status.consecutiveEmpty >= 3) {
+          console.warn(`\n⚠️  Possible rate limiting detected (${status.consecutiveEmpty} empty responses)`);
+          console.warn('Slowing down scroll speed...');
+
+          if (this.adaptiveScroller) {
+            this.adaptiveScroller.setDelay(this.options.scrollDelay * 2);
+          }
+
+          await sleep(5000); // Extra delay
+        }
+      }
+    }
+
+    if (scrollCount >= this.options.maxScrolls) {
+      console.log('[Scroll] Reached max scroll limit');
+    }
+
+    console.log(`\n[Scroll] Final count: ${previousStatusIds.size} bookmarks`);
+  }
+
+  /**
+   * Extract status IDs from page
+   */
+  private async extractStatusIds(page: any): Promise<Set<string>> {
+    const ids = await page.evaluate(() => {
+      const links = Array.from(document.querySelectorAll('a[href*="/status/"]'));
+      return links
+        .map((link: any) => {
+          const match = link.href.match(/\/status\/(\d+)/);
+          return match ? match[1] : null;
+        })
+        .filter(Boolean);
+    });
+
+    return new Set(ids);
+  }
+}

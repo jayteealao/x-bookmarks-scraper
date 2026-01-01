@@ -5,22 +5,26 @@
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "discover": "tsx src/index.ts --mode=discover",
-    "extract": "tsx src/index.ts --mode=extract",
+    "discover": "tsx src/index-v2.ts --mode=discover",
+    "extract": "tsx src/index-v2.ts --mode=extract",
+    "discover:v1": "tsx src/index.ts --mode=discover",
+    "extract:v1": "tsx src/index.ts --mode=extract",
     "verify": "tsx src/verify-har.ts",
     "build": "tsc",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index-v2.ts"
   },
   "keywords": ["twitter", "bookmarks", "scraper", "playwright"],
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
     "@types/node": "^20.10.0",
     "typescript": "^5.3.3",
     "tsx": "^4.7.0"
   },
   "dependencies": {
     "@playwright/test": "^1.40.1",
+    "better-sqlite3": "^9.2.2",
     "playwright": "^1.40.1"
   }
 }
