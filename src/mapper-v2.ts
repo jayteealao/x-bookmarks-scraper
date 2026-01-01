@@ -658,4 +658,139 @@ export class BookmarkMapperV2 {
   getResponseCount(): number {
     return this.responseCount;
   }
+
+  /**
+   * Get set of all seen tweet IDs (for reconciliation)
+   */
+  getSeenTweetIds(): Set<string> {
+    return new Set(this.seenTweets);
+  }
+
+  /**
+   * Recover a tweet from HAR data (used by reconciler)
+   */
+  async recoverTweet(harTweet: {
+    tweetId: string;
+    authorId: string;
+    text: string;
+    createdAt: string;
+    conversationId?: string;
+    lang?: string;
+    user?: {
+      userId: string;
+      username: string;
+      displayName: string;
+      description?: string;
+      profileImageUrl?: string;
+      followersCount?: number;
+      followingCount?: number;
+    };
+    metrics?: {
+      likeCount?: number;
+      retweetCount?: number;
+      replyCount?: number;
+      quoteCount?: number;
+      bookmarkCount?: number;
+    };
+    media?: any[];
+  }): Promise<void> {
+    // Skip if already seen
+    if (this.seenTweets.has(harTweet.tweetId)) {
+      return;
+    }
+
+    this.seenTweets.add(harTweet.tweetId);
+    this.tweetOrder++;
+
+    // Write tweet entity
+    const tweetEntity: TweetEntity = {
+      tweetId: harTweet.tweetId,
+      authorId: harTweet.authorId,
+      createdAt: harTweet.createdAt,
+      text: harTweet.text,
+      conversationId: harTweet.conversationId,
+      lang: harTweet.lang,
+      order: this.tweetOrder,
+    };
+
+    if (this.options.useSQLite && this.sqliteWriter) {
+      this.sqliteWriter.insertTweet(tweetEntity);
+    } else {
+      await this.bufferedWriter.write(this.outputFiles.tweets, tweetEntity);
+    }
+
+    this.metrics.recordTweet();
+
+    // Write user if available
+    if (harTweet.user && !this.seenUsers.has(harTweet.user.userId)) {
+      this.seenUsers.add(harTweet.user.userId);
+
+      const userEntity: TwitterUserEntity = {
+        odxId: harTweet.user.userId,
+        twitterId: harTweet.user.userId,
+        username: harTweet.user.username,
+        displayName: harTweet.user.displayName,
+        description: harTweet.user.description,
+        profileImageUrl: harTweet.user.profileImageUrl,
+        followersCount: harTweet.user.followersCount,
+        followingCount: harTweet.user.followingCount,
+      };
+
+      if (this.options.useSQLite && this.sqliteWriter) {
+        this.sqliteWriter.insertUser(userEntity);
+      } else {
+        await this.bufferedWriter.write(this.outputFiles.users, userEntity);
+      }
+
+      this.metrics.recordUser();
+    }
+
+    // Write metrics if available
+    if (harTweet.metrics && !this.seenMetrics.has(harTweet.tweetId)) {
+      this.seenMetrics.add(harTweet.tweetId);
+
+      const metricsEntity: TweetPublicMetrics = {
+        odxId: harTweet.tweetId,
+        likeCount: harTweet.metrics.likeCount ?? 0,
+        retweetCount: harTweet.metrics.retweetCount ?? 0,
+        replyCount: harTweet.metrics.replyCount ?? 0,
+        quoteCount: harTweet.metrics.quoteCount ?? 0,
+        bookmarkCount: harTweet.metrics.bookmarkCount ?? 0,
+      };
+
+      if (this.options.useSQLite && this.sqliteWriter) {
+        this.sqliteWriter.insertMetrics(metricsEntity);
+      } else {
+        await this.bufferedWriter.write(this.outputFiles.metrics, metricsEntity);
+      }
+    }
+
+    // Write media if available
+    if (harTweet.media && Array.isArray(harTweet.media)) {
+      for (const mediaItem of harTweet.media) {
+        const mediaKey = mediaItem.media_key || mediaItem.id_str;
+        if (!mediaKey || this.seenMedia.has(mediaKey)) continue;
+
+        this.seenMedia.add(mediaKey);
+
+        const mediaEntity: TweetMediaEntity = {
+          mediaKey,
+          type: mediaItem.type || 'photo',
+          url: mediaItem.media_url_https || mediaItem.url,
+          previewUrl: mediaItem.media_url_https,
+          width: mediaItem.original_info?.width,
+          height: mediaItem.original_info?.height,
+          durationMs: mediaItem.video_info?.duration_millis,
+        };
+
+        if (this.options.useSQLite && this.sqliteWriter) {
+          this.sqliteWriter.insertMedia(mediaEntity);
+        } else {
+          await this.bufferedWriter.write(this.outputFiles.media, mediaEntity);
+        }
+
+        this.metrics.recordMedia();
+      }
+    }
+  }
 }

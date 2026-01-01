@@ -11,6 +11,7 @@ import { chromium, type BrowserContext, type Response } from 'playwright';
 import { ShapeDiscovery } from './shape-discovery.js';
 import { BookmarkMapperV2, type MapperOptions } from './mapper-v2.js';
 import { AdaptiveScroller } from './adaptive-scroller.js';
+import { HarReconciler } from './har-reconciler.js';
 import { parseJSONWithRetry, sleep } from './utils.js';
 
 export type CaptureMode = 'discover' | 'extract';
@@ -120,24 +121,50 @@ export class BookmarksCaptureV2 {
 
       console.log('\n[Capture] Scrolling complete');
 
-      // Save results
-      if (this.discovery) {
-        this.discovery.saveDiscoveries();
-      } else if (this.mapper) {
-        await this.mapper.generateReport();
-        await this.mapper.close();
-      }
-
-      console.log('\n✅ Capture complete! Files saved to ./out/');
-
     } catch (error) {
       console.error('\n❌ [Capture] Error:', error);
       throw error;
     } finally {
+      // Close browser first to flush HAR file
       if (this.context) {
         console.log('\n[Capture] Closing browser and flushing HAR...');
         await this.context.close();
       }
+
+      // Run HAR reconciliation after browser closes (HAR is now complete)
+      if (this.mapper) {
+        await this.reconcileWithHar();
+        await this.mapper.generateReport();
+        await this.mapper.close();
+      } else if (this.discovery) {
+        this.discovery.saveDiscoveries();
+      }
+
+      console.log('\n✅ Capture complete! Files saved to ./out/');
+    }
+  }
+
+  /**
+   * Reconcile extracted data against HAR file
+   * Recovers any tweets that were missed during live capture
+   */
+  private async reconcileWithHar(): Promise<void> {
+    if (!this.mapper) return;
+
+    try {
+      const reconciler = new HarReconciler('out/x-bookmarks.har.zip');
+      const seenTweets = this.mapper.getSeenTweetIds();
+      const responseCount = this.mapper.getResponseCount();
+
+      await reconciler.reconcile(
+        seenTweets,
+        responseCount,
+        async (harTweet) => {
+          await this.mapper!.recoverTweet(harTweet);
+        }
+      );
+    } catch (error) {
+      console.warn('[Capture] HAR reconciliation skipped:', error instanceof Error ? error.message : error);
     }
   }
 

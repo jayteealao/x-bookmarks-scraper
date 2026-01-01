@@ -11,6 +11,8 @@
     "extract:fresh": "tsx src/index-v2.ts --mode=extract --no-resume",
     "extract:sqlite:fresh": "tsx src/index-v2.ts --mode=extract --sqlite --no-resume",
     "extract:full": "tsx src/index-v2.ts --mode=extract --sqlite --download-media",
+    "reconcile": "tsx src/reconcile.ts",
+    "reconcile:sqlite": "tsx src/reconcile.ts --sqlite",
     "discover:v1": "tsx src/index.ts --mode=discover",
     "extract:v1": "tsx src/index.ts --mode=extract",
     "verify": "tsx src/verify-har.ts",
