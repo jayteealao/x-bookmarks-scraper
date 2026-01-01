@@ -231,9 +231,11 @@ async function main() {
   }
 }
 
-// Run if executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  main();
-}
+// Run main function
+// Always run since this is a CLI script
+main().catch((error) => {
+  console.error('[FATAL] Unhandled error in main():', error);
+  process.exit(1);
+});
 
 export { main };
