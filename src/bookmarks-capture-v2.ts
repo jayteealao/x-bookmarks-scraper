@@ -368,38 +368,35 @@ export class BookmarksCaptureV2 {
         delay = this.options.scrollDelay + Math.random() * 400 - 200;
       }
 
-      // Scroll to bottom of document (not just viewport)
-      await page.evaluate(() => {
-        // Scroll to absolute bottom
-        window.scrollTo(0, document.body.scrollHeight);
-      });
+      // AGGRESSIVE scrolling for X's virtual scrolling + batched API responses
+      // X loads content in batches - need sustained scrolling to trigger new API calls
 
-      // Wait for potential network activity
-      await sleep(500);
+      // 1. Multiple rapid scrolls (simulates continuous scrolling)
+      for (let i = 0; i < 3; i++) {
+        await page.evaluate(() => {
+          window.scrollBy(0, window.innerHeight * 1.5);
+        });
+        await sleep(200);
+      }
 
-      // Try clicking any "Show more" or "Load more" buttons
+      // 2. Wait for network to settle and API responses to arrive
+      await sleep(1000);
+
+      // 3. Try clicking "Show more" buttons if present
       try {
         const showMoreButton = await page.$('[data-testid="cellInnerDiv"] [role="button"]:has-text("Show"), [data-testid="cellInnerDiv"] [role="button"]:has-text("more")');
         if (showMoreButton) {
-          console.log('  → Found "Show more" button, clicking...');
+          console.log('  → Clicking "Show more" button...');
           await showMoreButton.click();
           await sleep(1000);
         }
       } catch {
-        // No button found, that's fine
+        // No button, continue
       }
 
-      // Also try scrolling within the main timeline container (X uses nested scrolling)
+      // 4. Final push to absolute bottom
       await page.evaluate(() => {
-        const timeline = document.querySelector('[data-testid="primaryColumn"]');
-        if (timeline) {
-          timeline.scrollTop = timeline.scrollHeight;
-        }
-        // Also scroll the main section
-        const main = document.querySelector('main');
-        if (main) {
-          main.scrollTop = main.scrollHeight;
-        }
+        window.scrollTo(0, document.body.scrollHeight);
       });
 
       await sleep(delay);
