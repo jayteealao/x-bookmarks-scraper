@@ -107,10 +107,9 @@ export class BookmarksCapture {
    * Launch browser with persistent context and HAR recording
    */
   private async launchBrowser(): Promise<void> {
-    console.log('[Capture] Launching Chrome with persistent context...');
+    console.log('[Capture] Launching Chromium with persistent context...');
 
     this.context = await chromium.launchPersistentContext(this.options.profileDir, {
-      channel: 'chrome',
       headless: this.options.headless,
       recordHar: {
         path: 'out/x-bookmarks.har.zip',
