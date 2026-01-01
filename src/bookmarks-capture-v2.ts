@@ -80,19 +80,37 @@ export class BookmarksCaptureV2 {
       const page = this.context!.pages()[0] || (await this.context!.newPage());
 
       console.log('[Capture] Navigating to X Bookmarks...');
-      await page.goto('https://x.com/i/bookmarks', { waitUntil: 'networkidle', timeout: 60000 });
+
+      // Navigate without waiting for networkidle (login page never reaches it)
+      await page.goto('https://x.com/i/bookmarks', {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000
+      });
+
+      // Give page time to load
+      await page.waitForTimeout(2000);
 
       // Check login
       const isLoggedIn = await this.checkLogin(page);
       if (!isLoggedIn) {
-        console.log('\n⚠️  Not logged in to X. Please log in manually.');
-        console.log('The browser will stay open. After logging in, press Enter to continue...');
+        console.log('\n⚠️  Not logged in to X.');
+        console.log('\n📋 Instructions:');
+        console.log('  1. Log in to X in the browser window');
+        console.log('  2. Navigate to your bookmarks');
+        console.log('  3. Return here and press Enter to continue\n');
+        console.log('Waiting for you to log in...');
 
         await new Promise<void>((resolve) => {
           process.stdin.once('data', () => resolve());
         });
 
-        await page.goto('https://x.com/i/bookmarks', { waitUntil: 'networkidle', timeout: 60000 });
+        // Re-navigate to bookmarks after login
+        console.log('[Capture] Continuing to bookmarks...');
+        await page.goto('https://x.com/i/bookmarks', {
+          waitUntil: 'domcontentloaded',
+          timeout: 30000
+        });
+        await page.waitForTimeout(2000);
       }
 
       console.log('[Capture] Starting scroll...\n');
