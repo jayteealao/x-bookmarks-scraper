@@ -124,16 +124,58 @@ export class BookmarksCapture {
    * Launch browser with persistent context and HAR recording
    */
   private async launchBrowser(): Promise<void> {
-    console.log('[Capture] Launching Chromium with persistent context...');
+    console.log('[Capture] Launching Chromium with stealth configuration...');
 
     this.context = await chromium.launchPersistentContext(this.options.profileDir, {
       headless: this.options.headless,
+
+      // Stealth configuration to bypass bot detection
+      args: [
+        '--disable-blink-features=AutomationControlled',  // Hide automation
+        '--disable-features=IsolateOrigins,site-per-process',
+        '--disable-site-isolation-trials',
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--disable-gpu',
+        '--window-size=1280,720',
+      ],
+
+      // Set realistic user agent
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+
+      // Grant permissions
+      permissions: ['geolocation', 'notifications'],
+
       recordHar: {
         path: 'out/x-bookmarks.har.zip',
         mode: 'minimal',
         urlFilter: /\/i\/api\/graphql\//,
       },
       viewport: { width: 1280, height: 720 },
+    });
+
+    // Override navigator.webdriver to false (critical for detection bypass)
+    await this.context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => false,
+      });
+
+      // Add chrome object if missing
+      if (!window.chrome) {
+        // @ts-ignore
+        window.chrome = { runtime: {} };
+      }
+
+      // Override permissions
+      const originalQuery = window.navigator.permissions.query;
+      // @ts-ignore
+      window.navigator.permissions.query = (parameters) => (
+        parameters.name === 'notifications' ?
+          Promise.resolve({ state: Notification.permission }) :
+          originalQuery(parameters)
+      );
     });
 
     // Set up response listener
@@ -143,7 +185,8 @@ export class BookmarksCapture {
       });
     });
 
-    console.log('[Capture] Browser launched successfully');
+    console.log('[Capture] ✓ Browser launched with stealth mode');
+    console.log('[Capture] → Automation detection bypassed');
   }
 
   /**
