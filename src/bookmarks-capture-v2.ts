@@ -12,6 +12,8 @@ import { ShapeDiscovery } from './shape-discovery.js';
 import { BookmarkMapperV2, type MapperOptions } from './mapper-v2.js';
 import { AdaptiveScroller } from './adaptive-scroller.js';
 import { HarReconciler } from './har-reconciler.js';
+import { MediaInterceptor } from './media-interceptor.js';
+import { MediaReconciler } from './media-reconciler.js';
 import { parseJSONWithRetry, sleep } from './utils.js';
 
 export type CaptureMode = 'discover' | 'extract';
@@ -23,6 +25,8 @@ export interface CaptureOptions extends MapperOptions {
   scrollDelay?: number;
   noGrowthThreshold?: number;
   profileDir?: string;
+  captureMedia?: boolean;
+  mediaCaptureOnly?: boolean;
 }
 
 export class BookmarksCaptureV2 {
@@ -31,6 +35,7 @@ export class BookmarksCaptureV2 {
   private discovery?: ShapeDiscovery;
   private mapper?: BookmarkMapperV2;
   private adaptiveScroller?: AdaptiveScroller;
+  private mediaInterceptor?: MediaInterceptor;
 
   constructor(options: CaptureOptions) {
     this.options = {
@@ -43,6 +48,8 @@ export class BookmarksCaptureV2 {
       useSQLite: options.useSQLite ?? false,
       downloadMedia: options.downloadMedia ?? false,
       resumeFromCheckpoint: options.resumeFromCheckpoint ?? true,
+      captureMedia: options.captureMedia ?? false,
+      mediaCaptureOnly: options.mediaCaptureOnly ?? false,
     };
   }
 
@@ -57,9 +64,20 @@ export class BookmarksCaptureV2 {
     console.log(`Profile: ${this.options.profileDir}`);
     console.log(`SQLite: ${this.options.useSQLite ? 'enabled' : 'disabled'}`);
     console.log(`Media download: ${this.options.downloadMedia ? 'enabled' : 'disabled'}`);
+    console.log(`Media capture: ${this.options.captureMedia ? 'enabled' : 'disabled'}`);
+    console.log(`Media capture only: ${this.options.mediaCaptureOnly ? 'enabled' : 'disabled'}`);
     console.log(`Resume: ${this.options.resumeFromCheckpoint ? 'enabled' : 'disabled'}\n`);
 
     try {
+      // Handle media-capture-only mode (skip extraction, just reconcile media)
+      if (this.options.mediaCaptureOnly) {
+        console.log('[MediaCapture] Running in media-capture-only mode');
+        console.log('[MediaCapture] Skipping extraction, will only capture missing media\n');
+
+        await this.runMediaCaptureOnly();
+        return;
+      }
+
       // Initialize components
       if (this.options.mode === 'discover') {
         this.discovery = new ShapeDiscovery();
@@ -70,6 +88,10 @@ export class BookmarksCaptureV2 {
           resumeFromCheckpoint: this.options.resumeFromCheckpoint,
         });
         await this.mapper.initialize();
+
+        // MediaInterceptor is currently disabled - we rely entirely on MediaReconciler
+        // which has full access to the media table and can properly match mediaKeys to URLs
+        // TODO: Future enhancement - store intercepted images in memory and match during reconciliation
 
         // Initialize adaptive scroller
         this.adaptiveScroller = new AdaptiveScroller(this.options.scrollDelay);
@@ -150,6 +172,12 @@ export class BookmarksCaptureV2 {
       // Run HAR reconciliation after browser closes (HAR is now complete)
       if (this.mapper) {
         await this.reconcileWithHar();
+
+        // Run media reconciliation if enabled
+        if (this.options.captureMedia && this.options.useSQLite) {
+          await this.reconcileMedia();
+        }
+
         await this.mapper.generateReport();
         await this.mapper.close();
       } else if (this.discovery) {
@@ -182,6 +210,51 @@ export class BookmarksCaptureV2 {
     } catch (error) {
       console.warn('[Capture] HAR reconciliation skipped:', error instanceof Error ? error.message : error);
     }
+  }
+
+  /**
+   * Reconcile media - fetch any missing images
+   */
+  private async reconcileMedia(): Promise<void> {
+    if (!this.mapper || !this.mapper.getSQLiteWriter()) return;
+
+    try {
+      const reconciler = new MediaReconciler(this.mapper.getSQLiteWriter()!);
+      await reconciler.reconcile();
+    } catch (error) {
+      console.warn('[MediaCapture] Media reconciliation failed:', error instanceof Error ? error.message : error);
+    }
+  }
+
+  /**
+   * Run media capture only mode (no extraction, just fetch missing media)
+   */
+  private async runMediaCaptureOnly(): Promise<void> {
+    // Ensure SQLite is enabled
+    if (!this.options.useSQLite) {
+      console.error('❌ Media capture only mode requires --sqlite flag');
+      throw new Error('Media capture only mode requires --sqlite flag');
+    }
+
+    // Initialize mapper to access SQLite writer
+    this.mapper = new BookmarkMapperV2({
+      useSQLite: true,
+      downloadMedia: false,
+      resumeFromCheckpoint: false,
+    });
+    await this.mapper.initialize();
+
+    // Run media reconciliation
+    await this.reconcileMedia();
+
+    // Generate report and close
+    await this.mapper.generateReport();
+    await this.mapper.close();
+
+    // Clear mapper so finally block doesn't try to use it
+    this.mapper = undefined;
+
+    console.log('\n✅ Media capture complete!');
   }
 
   /**
@@ -258,6 +331,11 @@ export class BookmarksCaptureV2 {
    */
   private async handleResponse(response: Response): Promise<void> {
     const url = response.url();
+
+    // MediaInterceptor disabled - we rely entirely on MediaReconciler post-processing
+    // if (this.mediaInterceptor) {
+    //   await this.mediaInterceptor.handleResponse(response);
+    // }
 
     if (!url.includes('/i/api/graphql/')) {
       return;

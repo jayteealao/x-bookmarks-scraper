@@ -677,6 +677,13 @@ export class BookmarkMapperV2 {
   }
 
   /**
+   * Get SQLite writer instance (for media capture)
+   */
+  getSQLiteWriter(): SQLiteWriter | undefined {
+    return this.sqliteWriter;
+  }
+
+  /**
    * Recover a tweet from HAR data (used by reconciler)
    */
   async recoverTweet(harTweet: {

@@ -135,6 +135,21 @@ export class SQLiteWriter {
 
       CREATE INDEX IF NOT EXISTS idx_annotations_tweet ON text_annotations(tweetId);
       CREATE INDEX IF NOT EXISTS idx_annotations_type ON text_annotations(type);
+
+      -- Media content (base64 images)
+      CREATE TABLE IF NOT EXISTS media_content (
+        mediaKey TEXT PRIMARY KEY,
+        base64Data TEXT NOT NULL,
+        mimeType TEXT NOT NULL,
+        sizeBytes INTEGER NOT NULL,
+        capturedAt TEXT NOT NULL,
+        sourceUrl TEXT,
+        captureMethod TEXT CHECK(captureMethod IN ('intercept', 'reconcile')),
+        FOREIGN KEY (mediaKey) REFERENCES media(mediaKey) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_media_content_captured ON media_content(capturedAt);
+      CREATE INDEX IF NOT EXISTS idx_media_content_method ON media_content(captureMethod);
     `);
   }
 
@@ -187,6 +202,13 @@ export class SQLiteWriter {
         tweetId, type, start, "end", tag, url,
         expandedUrl, displayUrl, unwoundUrl, userId, username
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `));
+
+    this.statements.set('mediaContent', this.db.prepare(`
+      INSERT OR IGNORE INTO media_content (
+        mediaKey, base64Data, mimeType, sizeBytes,
+        capturedAt, sourceUrl, captureMethod
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
     `));
   }
 
@@ -306,6 +328,46 @@ export class SQLiteWriter {
   }
 
   /**
+   * Write media content (base64 image)
+   */
+  writeMediaContent(content: {
+    mediaKey: string;
+    base64Data: string;
+    mimeType: string;
+    sizeBytes: number;
+    sourceUrl: string;
+    captureMethod: 'intercept' | 'reconcile';
+  }): void {
+    const stmt = this.statements.get('mediaContent')!;
+    stmt.run(
+      content.mediaKey,
+      content.base64Data,
+      content.mimeType,
+      content.sizeBytes,
+      new Date().toISOString(),
+      content.sourceUrl || null,
+      content.captureMethod
+    );
+  }
+
+  /**
+   * Check if media content already captured
+   */
+  hasMediaContent(mediaKey: string): boolean {
+    const result = this.db.prepare(
+      'SELECT 1 FROM media_content WHERE mediaKey = ?'
+    ).get(mediaKey);
+    return !!result;
+  }
+
+  /**
+   * Get database instance (for queries)
+   */
+  getDb(): Database.Database {
+    return this.db;
+  }
+
+  /**
    * Begin transaction
    */
   beginTransaction(): void {
@@ -333,17 +395,20 @@ export class SQLiteWriter {
     tweets: number;
     users: number;
     media: number;
+    mediaContent: number;
     annotations: number;
   } {
     const tweets = this.db.prepare('SELECT COUNT(*) as count FROM tweets').get() as { count: number };
     const users = this.db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
     const media = this.db.prepare('SELECT COUNT(*) as count FROM media').get() as { count: number };
+    const mediaContent = this.db.prepare('SELECT COUNT(*) as count FROM media_content').get() as { count: number };
     const annotations = this.db.prepare('SELECT COUNT(*) as count FROM text_annotations').get() as { count: number };
 
     return {
       tweets: tweets.count,
       users: users.count,
       media: media.count,
+      mediaContent: mediaContent.count,
       annotations: annotations.count,
     };
   }

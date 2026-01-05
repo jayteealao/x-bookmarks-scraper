@@ -22,6 +22,8 @@ interface CliOptions {
   useSQLite: boolean;
   downloadMedia: boolean;
   noResume: boolean;
+  captureMedia: boolean;
+  mediaCaptureOnly: boolean;
 }
 
 /**
@@ -39,6 +41,8 @@ function parseArgs(): CliOptions {
     useSQLite: false,
     downloadMedia: false,
     noResume: false,
+    captureMedia: false,
+    mediaCaptureOnly: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -67,6 +71,10 @@ function parseArgs(): CliOptions {
       options.downloadMedia = true;
     } else if (arg === '--no-resume') {
       options.noResume = true;
+    } else if (arg === '--capture-media') {
+      options.captureMedia = true;
+    } else if (arg === '--media-capture-only') {
+      options.mediaCaptureOnly = true;
     } else if (arg === '--help' || arg === '-h') {
       printHelp();
       process.exit(0);
@@ -101,6 +109,8 @@ Options:
 
   --sqlite                     Export to SQLite database instead of JSONL (default: false)
   --download-media             Download media files to out/media/ (default: false)
+  --capture-media              Capture images as base64 in SQLite (requires --sqlite) (default: false)
+  --media-capture-only         Only capture missing media, skip extraction (default: false)
   --no-resume                  Start fresh, ignore checkpoint (default: false)
 
   -h, --help                   Show this help message
@@ -120,6 +130,8 @@ Examples:
   npm run extract                           # Standard extraction to JSONL
   npm run extract -- --sqlite               # Export to SQLite database
   npm run extract -- --download-media       # Download all media files
+  npm run extract -- --sqlite --capture-media  # Capture images as base64 in SQLite
+  npm run extract -- --media-capture-only   # Only capture missing media (no extraction)
   npm run extract -- --headless             # Run in headless mode
   npm run extract -- --max-scrolls=50       # Limit scrolls for testing
   npm run extract -- --no-resume            # Start fresh, ignore checkpoint
@@ -142,6 +154,7 @@ Output Files:
 
   Extraction mode (SQLite):
     out/bookmarks.db             All data in SQLite database
+    (with --capture-media: includes base64 images in media_content table)
 
   Media download:
     out/media/*.jpg              Downloaded images/videos
@@ -200,6 +213,8 @@ async function main() {
     useSQLite: options.useSQLite,
     downloadMedia: options.downloadMedia,
     resumeFromCheckpoint: !options.noResume,
+    captureMedia: options.captureMedia,
+    mediaCaptureOnly: options.mediaCaptureOnly,
   });
 
   try {
