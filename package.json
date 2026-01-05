@@ -11,6 +11,14 @@
     "extract:fresh": "tsx src/index-v2.ts --mode=extract --no-resume",
     "extract:sqlite:fresh": "tsx src/index-v2.ts --mode=extract --sqlite --no-resume",
     "extract:full": "tsx src/index-v2.ts --mode=extract --sqlite --download-media",
+    "extract:capture-media": "tsx src/index-v2.ts --mode=extract --sqlite --capture-media",
+    "media-capture-only": "tsx src/index-v2.ts --sqlite --media-capture-only",
+    "firebase:export": "tsx src/firebase-export.ts",
+    "firebase:export:dry-run": "tsx src/firebase-export.ts --dry-run",
+    "firebase:export:with-media": "tsx src/firebase-export.ts --include-media",
+    "storage:upload": "tsx src/storage-upload.ts",
+    "storage:upload:dry-run": "tsx src/storage-upload.ts --dry-run",
+    "storage:upload:update": "tsx src/storage-upload.ts --update-firestore",
     "reconcile": "tsx src/reconcile.ts",
     "reconcile:sqlite": "tsx src/reconcile.ts --sqlite",
     "discover:v1": "tsx src/index.ts --mode=discover",
@@ -19,18 +27,24 @@
     "build": "tsc",
     "dev": "tsx src/index-v2.ts"
   },
-  "keywords": ["twitter", "bookmarks", "scraper", "playwright"],
+  "keywords": [
+    "twitter",
+    "bookmarks",
+    "scraper",
+    "playwright"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.8",
     "@types/node": "^20.10.0",
-    "typescript": "^5.3.3",
-    "tsx": "^4.7.0"
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
   },
   "dependencies": {
     "@playwright/test": "^1.40.1",
     "better-sqlite3": "^9.2.2",
+    "firebase-admin": "^13.6.0",
     "playwright": "^1.40.1"
   }
 }
